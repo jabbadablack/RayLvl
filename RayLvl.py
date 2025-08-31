@@ -1,15 +1,4 @@
 
-# SPDX-License-Identifier: MIT
-bl_info = {
-    "name": "RayLvl",
-    "author": "jabbadablack",
-    "version": (1, 0, 0),
-    "blender": (3, 0, 0),
-    "location": "File > Export > RayLvl",
-    "description": "Export GLB + JSON (Y-up) for use with any raylib binding.",
-    "category": "Import-Export",
-}
-
 import bpy, json, os
 from math import radians
 from mathutils import Matrix
