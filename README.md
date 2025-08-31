@@ -1,258 +1,129 @@
 
-# RayLvl (raylib)
+# RayLvl
+
+**RayLvl** is a Blender add‑on that exports your scene for **raylib** (any binding):
+- **`level.glb`** — load with `LoadModel()`
+- **`level.json`** — simple metadata (nodes, Y‑up transforms, custom props, optional colliders)
+
+> Blender is Z‑up. RayLvl converts to **Y‑up (right‑handed)** for raylib.
+
+---
 
 ## Quick Start
+1. Put `RayLvl.py` in your repo. In Blender: **Edit → Preferences → Add‑ons → Install…** → pick the file → enable.
+2. **File → Export → RayLvl** → choose a base name (e.g. `level`).
+3. You get `level.glb` + `level.json` next to that path.
 
-1) Save the add‑on to your repo as `raylvl.py`.  
-2) In Blender: **Edit → Preferences → Add‑ons → Install…**, select the script, enable it.  
-3) Export via **File → Export → Level (raylib)**.  
-4) You’ll get `level.glb` + `level.json`. Load the GLB with raylib in your language of choice, and parse the JSON to place gameplay objects.
-
----
-
-## Export Options
-
-- **Selection Only** — export only selected objects.
-- **Include Mesh Colliders (JSON)** — exports per‑mesh local triangles in **object‑local** space.
-- **Apply Modifiers (for colliders)** — bakes evaluated modifiers.
-- **Unit Scale** — multiplies positions and scales at export time.
-- **Export GLB** — writes a GLB usable with `LoadModel()` in all raylib bindings.
-
-**Coordinate system:** Blender is **Z‑up, right‑handed**; raylib is **Y‑up, right‑handed**. The exporter rotates **−90° around +X** so Blender’s Z becomes raylib’s Y. The JSON you get is already Y‑up.
+**Options:** Selection Only • Include Mesh Colliders • Apply Modifiers • Unit Scale • Export GLB
 
 ---
 
-## Files & Schema
-
-### `level.glb`
-- Loadable with `LoadModel("level.glb")` in raylib (C API mirrored across bindings).
-
-### `level.json` (manifest)
+## Files
+- **GLB**: `LoadModel("level.glb")` in all raylib bindings.
+- **JSON** (tiny schema):
 ```json
 {
-  "schema": "raylib.level/1.0",
-  "coordinateSystem": "Y_UP_RIGHT",
-  "unitScale": 1.0,
-  "glb": "level.glb",
-  "nodes": [
-    {
-      "name": "Spawn01",
-      "kind": "spawner",
-      "transform": {
-        "position": {"x":0,"y":1,"z":0},
-        "rotation": {"x":0,"y":0,"z":0,"w":1},
-        "scale":    {"x":1,"y":1,"z":1}
-      },
-      "props": { "team": 1 },
-      "collider": {
-        "vertices": [[x,y,z], ...],
-        "triangles": [[i0,i1,i2], ...]
-      }
-    }
+  "schema":"raylib.level/1.0",
+  "glb":"level.glb",
+  "nodes":[
+    {"name":"Spawn01","kind":"spawner",
+     "transform":{"position":{"x":0,"y":1,"z":0},
+                  "rotation":{"x":0,"y":0,"z":0,"w":1},
+                  "scale":{"x":1,"y":1,"z":1}}}
   ]
 }
 ```
 
-- `nodes[*].collider` is **optional** and local to the mesh. Instance it by applying the node transform on your side.
-
 ---
 
-## Loading the GLB
-
-All bindings share the same idea: create a 3D camera, call `LoadModel("level.glb")`, and draw it in a 3D pass.
-
-**C (clang/gcc)**
+## Load the GLB (raylib)
 ```c
+// C (clang/gcc)
 #include "raylib.h"
-int main(void) {
-    InitWindow(1280, 720, "level");
-    Camera3D cam = {0};
-    cam.position = (Vector3){6,6,6};
-    cam.target   = (Vector3){0,1,0};
-    cam.up       = (Vector3){0,1,0};
-    cam.fovy = 60; cam.projection = CAMERA_PERSPECTIVE;
-
-    Model level = LoadModel("level.glb");
-    SetTargetFPS(60);
-    while (!WindowShouldClose()) {
-        BeginDrawing(); ClearBackground(RAYWHITE);
-        BeginMode3D(cam);
-        DrawModel(level, (Vector3){0,0,0}, 1.0f, WHITE);
-        EndMode3D();
-        EndDrawing();
-    }
-    UnloadModel(level); CloseWindow(); return 0;
-}
+int main(){ InitWindow(800,450,"lvl"); Camera3D c={0};
+c.position=(Vector3){6,6,6}; c.target=(Vector3){0,1,0}; c.up=(Vector3){0,1,0}; c.fovy=60; c.projection=CAMERA_PERSPECTIVE;
+Model m=LoadModel("level.glb"); while(!WindowShouldClose()){ BeginDrawing(); ClearBackground(RAYWHITE);
+BeginMode3D(c); DrawModel(m,(Vector3){0,0,0},1,WHITE); EndMode3D(); EndDrawing(); } UnloadModel(m); CloseWindow(); }
 ```
 
 ---
 
-## Reading the JSON (per‑language snippets)
+## Read the JSON (pick your binding)
 
-Pick your binding and drop one of these into your project. They only parse what the schema exposes; feel free to extend.
-
-### C (clang/gcc) + raylib (cJSON)
+### C (clang) + cJSON (tiny)
 ```c
-#include "raylib.h"
 #include "cJSON.h"
-#include <stdio.h>
-#include <stdlib.h>
-
-typedef struct { Vector3 position; Quaternion rotation; Vector3 scale; } NodeXform;
-
-static int LoadLevelManifest(const char* path, NodeXform* out, int maxNodes) {
-    FILE* f = fopen(path, "rb"); if (!f) return 0;
-    fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
-    char* buf = (char*)malloc((size_t)len+1); fread(buf, 1, (size_t)len, f); buf[len]=0; fclose(f);
-    cJSON* root = cJSON_Parse(buf); free(buf); if (!root) return 0;
-    cJSON* nodes = cJSON_GetObjectItem(root, "nodes"); if (!cJSON_IsArray(nodes)) { cJSON_Delete(root); return 0; }
-    int count = 0; for (cJSON* n = nodes->child; n && count < maxNodes; n = n->next) {
-        cJSON* t = cJSON_GetObjectItem(n, "transform");
-        cJSON* p = cJSON_GetObjectItem(t, "position");
-        cJSON* r = cJSON_GetObjectItem(t, "rotation");
-        cJSON* s = cJSON_GetObjectItem(t, "scale");
-        out[count].position = (Vector3){ (float)cJSON_GetObjectItem(p,"x")->valuedouble,
-                                         (float)cJSON_GetObjectItem(p,"y")->valuedouble,
-                                         (float)cJSON_GetObjectItem(p,"z")->valuedouble };
-        out[count].rotation = (Quaternion){ (float)cJSON_GetObjectItem(r,"x")->valuedouble,
-                                            (float)cJSON_GetObjectItem(r,"y")->valuedouble,
-                                            (float)cJSON_GetObjectItem(r,"z")->valuedouble,
-                                            (float)cJSON_GetObjectItem(r,"w")->valuedouble };
-        out[count].scale    = (Vector3){ (float)cJSON_GetObjectItem(s,"x")->valuedouble,
-                                         (float)cJSON_GetObjectItem(s,"y")->valuedouble,
-                                         (float)cJSON_GetObjectItem(s,"z")->valuedouble };
-        ++count;
-    }
-    cJSON_Delete(root); return count;
+typedef struct { Vector3 p; Quaternion q; Vector3 s; } X;
+int load(const char* path, X* out, int cap){
+  FILE* f=fopen(path,"rb"); if(!f) return 0;
+  fseek(f,0,SEEK_END); long n=ftell(f); fseek(f,0,SEEK_SET);
+  char* b=malloc((size_t)n+1); fread(b,1,(size_t)n,f); b[n]=0; fclose(f);
+  cJSON* r=cJSON_Parse(b); free(b); if(!r) return 0; cJSON* a=cJSON_GetObjectItem(r,"nodes"); int i=0;
+  for(cJSON* it=a?a->child:0; it && i<cap; it=it->next,++i){
+    cJSON* t=cJSON_GetObjectItem(it,"transform");
+    #define G(o,k) (float)cJSON_GetObjectItem((o),(k))->valuedouble
+    cJSON* P=cJSON_GetObjectItem(t,"position"); out[i].p=(Vector3){G(P,"x"),G(P,"y"),G(P,"z")};
+    cJSON* R=cJSON_GetObjectItem(t,"rotation"); out[i].q=(Quaternion){G(R,"x"),G(R,"y"),G(R,"z"),G(R,"w")};
+    cJSON* S=cJSON_GetObjectItem(t,"scale");    out[i].s=(Vector3){G(S,"x"),G(S,"y"),G(S,"z")};
+    #undef G
+  } cJSON_Delete(r); return i;
 }
 ```
 
-### C++ (raylib-cpp, nlohmann/json)
+### C++ (nlohmann/json)
 ```cpp
-#include "raylib-cpp.hpp"
-#include <nlohmann/json.hpp>
-#include <fstream>
-struct NodeXform { ::Vector3 p, s; ::Quaternion q; };
-std::vector<NodeXform> load_manifest(const std::string& path){
-    std::ifstream f(path); nlohmann::json j; f >> j; std::vector<NodeXform> out;
-    for (auto& n : j["nodes"]) {
-        auto& t = n["transform"];
-        NodeXform nx;
-        nx.p = { t["position"]["x"], t["position"]["y"], t["position"]["z"] };
-        nx.q = { t["rotation"]["x"], t["rotation"]["y"], t["rotation"]["z"], t["rotation"]["w"] };
-        nx.s = { t["scale"]["x"], t["scale"]["y"], t["scale"]["z"] };
-        out.push_back(nx);
-    }
-    return out;
+#include <nlohmann/json.hpp> #include <fstream>
+struct V3{float x,y,z;}; struct Q{float x,y,z,w;};
+struct X{V3 p,s; Q q;};
+std::vector<X> load(std::string p){
+  std::ifstream f(p); nlohmann::json j; f>>j; std::vector<X> out;
+  for(auto& n: j["nodes"]) { auto&t=n["transform"]; X x;
+    x.p={t["position"]["x"],t["position"]["y"],t["position"]["z"]};
+    x.q={t["rotation"]["x"],t["rotation"]["y"],t["rotation"]["z"],t["rotation"]["w"]};
+    x.s={t["scale"]["x"],t["scale"]["y"],t["scale"]["z"]};
+    out.push_back(x); } return out;
 }
 ```
 
-### Python (pyray / raylib-py)
+### Python (pyray)
 ```python
 import json, pyray as rl
-with open("level.json", "r", encoding="utf-8") as f:
-    data = json.load(f)
-nodes = []
-for n in data["nodes"]:
-    t = n["transform"]
-    pos = rl.Vector3(t["position"]["x"], t["position"]["y"], t["position"]["z"])
-    rot = rl.Quaternion(t["rotation"]["x"], t["rotation"]["y"], t["rotation"]["z"], t["rotation"]["w"])
-    scl = rl.Vector3(t["scale"]["x"], t["scale"]["y"], t["scale"]["z"])
-    nodes.append((pos, rot, scl))
+nodes=[(rl.Vector3(t["position"]["x"],t["position"]["y"],t["position"]["z"]),
+        rl.Quaternion(t["rotation"]["x"],t["rotation"]["y"],t["rotation"]["z"],t["rotation"]["w"]),
+        rl.Vector3(t["scale"]["x"],t["scale"]["y"],t["scale"]["z"])) 
+       for t in (n["transform"] for n in json.load(open("level.json"))["nodes"])]
 ```
 
-### Rust (raylib-rs + serde)
+### Rust (serde)
 ```rust
-use serde::Deserialize;
-#[derive(Deserialize)] struct V3 { x:f32,y:f32,z:f32 }
-#[derive(Deserialize)] struct Q { x:f32,y:f32,z:f32,w:f32 }
-#[derive(Deserialize)] struct T { position:V3, rotation:Q, scale:V3 }
-#[derive(Deserialize)] struct Node { transform:T }
-#[derive(Deserialize)] struct Manifest { nodes: Vec<Node> }
-let mf: Manifest = serde_json::from_reader(std::fs::File::open("level.json")?)?;
-for n in &mf.nodes {
-    let _p = &n.transform.position;
-    let _q = &n.transform.rotation;
-    let _s = &n.transform.scale;
-}
+use serde::Deserialize; #[derive(Deserialize)] struct V3{ x:f32,y:f32,z:f32 }
+#[derive(Deserialize)] struct Q{ x:f32,y:f32,z:f32,w:f32 } #[derive(Deserialize)] struct T{ position:V3,rotation:Q,scale:V3 }
+#[derive(Deserialize)] struct N{ transform:T } #[derive(Deserialize)] struct M{ nodes:Vec<N> }
+let m: M = serde_json::from_reader(std::fs::File::open("level.json")?)?;
 ```
 
-### Go (raylib-go)
+### Go
 ```go
-package main
-import ("encoding/json"; "os")
-type V3 struct{ X, Y, Z float32 }
-type Q  struct{ X, Y, Z, W float32 }
-type T  struct{ Position V3; Rotation Q; Scale V3 }
-type Node struct{ Transform T }
-type Manifest struct{ Nodes []Node }
-func loadManifest(path string) (*Manifest, error) {
-    b, err := os.ReadFile(path); if err != nil { return nil, err }
-    var m Manifest; if err := json.Unmarshal(b, &m); err != nil { return nil, err }
-    return &m, nil
-}
+type V3 struct{ X,Y,Z float32 } ; type Q struct{ X,Y,Z,W float32 }
+type T struct{ Position V3; Rotation Q; Scale V3 }
+type N struct{ Transform T } ; type M struct{ Nodes []N }
+var m M; _ = json.Unmarshal([]byte(os.ReadFile("level.json")),&m)
 ```
 
-### C# (.NET, Raylib-cs)
+### C# (.NET)
 ```csharp
-using System.Text.Json;
-public record V3(float x, float y, float z);
-public record Q(float x, float y, float z, float w);
-public record T(V3 position, Q rotation, V3 scale);
-public record Node(T transform);
-public record Manifest(Node[] nodes);
-var m = JsonSerializer.Deserialize<Manifest>(File.ReadAllText("level.json"))!;
-```
-
-### Zig (std.json)
-```zig
-const std = @import("std");
-const V3 = struct { x: f32, y: f32, z: f32 };
-const Q  = struct { x: f32, y: f32, z: f32, w: f32 };
-const T  = struct { position: V3, rotation: Q, scale: V3 };
-const Node = struct { transform: T };
-const Manifest = struct { nodes: []Node };
-pub fn loadManifest(alloc: std.mem.Allocator, path: []const u8) !Manifest {
-    const data = try std.fs.cwd().readFileAlloc(alloc, path, 1 << 26);
-    defer alloc.free(data);
-    var p = std.json.Parser.init(alloc, .{});
-    defer p.deinit();
-    const tree = try p.parse(data);
-    return try std.json.fromValue(Manifest, tree.root, .{ .allocator = alloc });
-}
-```
-
-### Java (Jackson)
-```java
-public record V3(float x,float y,float z) {}
-public record Q (float x,float y,float z,float w) {}
-public record T (V3 position, Q rotation, V3 scale) {}
-public record Node(T transform) {}
-public record Manifest(java.util.List<Node> nodes) {}
-// Manifest mf = new ObjectMapper().readValue(new File("level.json"), Manifest.class);
+public record V3(float x,float y,float z); public record Q(float x,float y,float z,float w);
+public record T(V3 position,Q rotation,V3 scale); public record N(T transform);
+var m = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string,object>>(File.ReadAllText("level.json"));
 ```
 
 ---
 
-## Tips & Troubleshooting
-
-- **Nothing shows up?** Make sure you’re drawing the model in a 3D pass (`BeginMode3D/EndMode3D`) and your camera looks at the origin (many scenes export centered at world 0).  
-- **Weird orientation?** The exporter already rotates Z‑up → Y‑up; double‑check you’re not re‑rotating in code.  
-- **Colliders misaligned?** They’re **object‑local**. Apply the node’s transform when building physics shapes.  
-- **Animations?** GLB import is supported in raylib; animation support varies by version—test animated assets in your target build.
+## Tips
+- Draw in a 3D pass (`BeginMode3D`/`EndMode3D`).
+- JSON colliders are **object‑local**; apply node transforms when building physics shapes.
+- If it’s rotated wrong, make sure you didn’t rotate again in code—RayLvl already outputs Y‑up.
 
 ---
 
-## References
-
-- raylib cheatsheet (API overview): https://www.raylib.com/cheatsheet/cheatsheet.html  
-- Models (load/draw) examples: https://www.raylib.com/examples/models/loader.html  
-- GLTF/GLB example in raylib repo: search for `models_loading_gltf` in the official examples
-
----
-
-## License
-
-- Add‑on and README: **MIT**.  
-- Your exported content is yours.  
-- raylib is licensed separately (see the raylib repo).
+License: **MIT**
