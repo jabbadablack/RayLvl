@@ -1,17 +1,6 @@
 
 # RayLvl (raylib)
 
-Author: **@jabbadablack**  
-Blender add‑on for exporting levels you can load from **any raylib binding**—C (clang/gcc), C++, Python, Rust, Go, C#, Zig, Java, etc.
-
-This add‑on writes:
-- **`level.glb`** — a single GLB scene you can load with raylib’s `LoadModel()`.
-- **`level.json`** — a small manifest with nodes, Y‑up transforms (`Vector3`/`Quaternion` field names), custom props, and optional local‑space mesh colliders.
-
-> Why GLB+JSON? GLB carries renderable geometry/materials that raylib can draw, while JSON carries your **gameplay metadata** (spawns, triggers, etc.) in a language‑agnostic way.
-
----
-
 ## Quick Start
 
 1) Save the add‑on to your repo as `raylvl.py`.  
